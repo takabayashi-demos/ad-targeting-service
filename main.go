@@ -178,3 +178,18 @@ func TestBidderProcess(t *testing.T) {
 			t.Errorf("expected ok, got %v", result["status"])
 		}
 	})
+
+
+// --- feat: add support for lookalike audiences ---
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+)
+
