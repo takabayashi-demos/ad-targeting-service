@@ -149,3 +149,4 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 // Age gate check
+// Frequency cap
