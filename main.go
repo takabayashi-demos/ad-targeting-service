@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-func TestSegmentProcess(t *testing.T) {
-	svc := NewSegmentService()
+func TestImpressionProcess(t *testing.T) {
+	svc := NewImpressionService()
 
 	t.Run("processes valid request", func(t *testing.T) {
 		req := map[string]interface{}{"key": "value"}
@@ -19,8 +19,8 @@ func TestSegmentProcess(t *testing.T) {
 	})
 }
 
-func BenchmarkSegment(b *testing.B) {
-	svc := NewSegmentService()
+func BenchmarkImpression(b *testing.B) {
+	svc := NewImpressionService()
 	req := map[string]interface{}{"key": "value"}
 
 	b.ResetTimer()
