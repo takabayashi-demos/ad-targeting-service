@@ -28,3 +28,19 @@ func BenchmarkImpression(b *testing.B) {
 		svc.Process(nil, req)
 	}
 }
+
+
+// --- fix: correct memory leak calculation ---
+package main
+
+import (
+	"testing"
+)
+
+func TestTrackerProcess(t *testing.T) {
+	svc := NewTrackerService()
+
+	t.Run("processes valid request", func(t *testing.T) {
+		req := map[string]interface{}{"key": "value"}
+		result, err := svc.Process(nil, req)
+		if err != nil {
