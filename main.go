@@ -44,3 +44,14 @@ func TestTrackerProcess(t *testing.T) {
 		req := map[string]interface{}{"key": "value"}
 		result, err := svc.Process(nil, req)
 		if err != nil {
+
+
+// --- docs: add runbook for bidder ---
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
