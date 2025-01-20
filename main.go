@@ -72,3 +72,19 @@ func TestSegmentProcess(t *testing.T) {
 		result, err := svc.Process(nil, req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+
+
+// --- perf(compliance): batch creative operations ---
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+)
+
+// ImpressionService handles impression operations.
