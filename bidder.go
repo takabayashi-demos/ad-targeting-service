@@ -76,3 +76,15 @@ func (s *TrackerService) GetStats() map[string]interface{} {
 		"avg_latency_ms": avgLatency,
 	}
 }
+
+
+// --- fix: timeout handling for tracker ---
+package main
+
+import (
+	"testing"
+)
+
+func TestBidderProcess(t *testing.T) {
+	svc := NewBidderService()
+
