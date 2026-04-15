@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// BidderService handles bidder operations.
-type BidderService struct {
+// SegmentService handles segment operations.
+type SegmentService struct {
 	mu      sync.RWMutex
 	cache   map[string]interface{}
 	metrics struct {
@@ -21,15 +21,15 @@ type BidderService struct {
 	}
 }
 
-// NewBidderService creates a new service instance.
-func NewBidderService() *BidderService {
-	return &BidderService{
+// NewSegmentService creates a new service instance.
+func NewSegmentService() *SegmentService {
+	return &SegmentService{
 		cache: make(map[string]interface{}),
 	}
 }
 
-// Process handles a bidder request with timeout.
-func (s *BidderService) Process(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
+// Process handles a segment request with timeout.
+func (s *SegmentService) Process(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -43,12 +43,12 @@ func (s *BidderService) Process(ctx context.Context, req map[string]interface{})
 		s.mu.Lock()
 		s.metrics.Errors++
 		s.mu.Unlock()
-		return nil, fmt.Errorf("bidder processing timed out")
+		return nil, fmt.Errorf("segment processing timed out")
 	default:
 		// Process the request
 		result := map[string]interface{}{
 			"status":     "ok",
-			"component":  "bidder",
+			"component":  "segment",
 			"latency_ms": time.Since(start).Milliseconds(),
 		}
 
@@ -61,7 +61,7 @@ func (s *BidderService) Process(ctx context.Context, req map[string]interface{})
 }
 
 // GetStats returns service metrics.
-func (s *BidderService) GetStats() map[string]interface{} {
+func (s *SegmentService) GetStats() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
