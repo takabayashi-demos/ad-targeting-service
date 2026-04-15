@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// TrackerService handles tracker operations.
-type TrackerService struct {
+// BidderService handles bidder operations.
+type BidderService struct {
 	mu      sync.RWMutex
 	cache   map[string]interface{}
 	metrics struct {
@@ -21,15 +21,15 @@ type TrackerService struct {
 	}
 }
 
-// NewTrackerService creates a new service instance.
-func NewTrackerService() *TrackerService {
-	return &TrackerService{
+// NewBidderService creates a new service instance.
+func NewBidderService() *BidderService {
+	return &BidderService{
 		cache: make(map[string]interface{}),
 	}
 }
 
-// Process handles a tracker request with timeout.
-func (s *TrackerService) Process(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
+// Process handles a bidder request with timeout.
+func (s *BidderService) Process(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -43,12 +43,12 @@ func (s *TrackerService) Process(ctx context.Context, req map[string]interface{}
 		s.mu.Lock()
 		s.metrics.Errors++
 		s.mu.Unlock()
-		return nil, fmt.Errorf("tracker processing timed out")
+		return nil, fmt.Errorf("bidder processing timed out")
 	default:
 		// Process the request
 		result := map[string]interface{}{
 			"status":     "ok",
-			"component":  "tracker",
+			"component":  "bidder",
 			"latency_ms": time.Since(start).Milliseconds(),
 		}
 
@@ -61,7 +61,7 @@ func (s *TrackerService) Process(ctx context.Context, req map[string]interface{}
 }
 
 // GetStats returns service metrics.
-func (s *TrackerService) GetStats() map[string]interface{} {
+func (s *BidderService) GetStats() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -76,15 +76,3 @@ func (s *TrackerService) GetStats() map[string]interface{} {
 		"avg_latency_ms": avgLatency,
 	}
 }
-
-
-// --- fix: timeout handling for tracker ---
-package main
-
-import (
-	"testing"
-)
-
-func TestBidderProcess(t *testing.T) {
-	svc := NewBidderService()
-
