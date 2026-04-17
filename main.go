@@ -75,21 +75,32 @@ func init() {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "UP", "service": "ad-targeting-service", "version": "1.4.2",
-	})
+	}); err != nil {
+		log.Printf("ERROR: Failed to encode health response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func readyHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"status": "READY"})
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "READY"}); err != nil {
+		log.Printf("ERROR: Failed to encode ready response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func segmentsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"segments": segments,
 		"total":    len(segments),
-	})
+	}); err != nil {
+		log.Printf("ERROR: Failed to encode segments response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func bidHandler(w http.ResponseWriter, r *http.Request) {
@@ -100,9 +111,14 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 
 	// ❌ VULNERABILITY: No authentication on bid endpoint
 	var req BidRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("ERROR: Failed to decode bid request: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
 	bidCount++
+	log.Printf("INFO: Processing bid request %d for user %s", bidCount, req.UserID)
 
 	// Simulate real-time bidding with latency
 	latency := time.Duration(rand.Intn(MaxBidLatencyMs-MinBidLatencyMs)+MinBidLatencyMs) * time.Millisecond
@@ -122,28 +138,39 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	impressions = append(impressions, impression)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	response := map[string]interface{}{
 		"bid_id":    fmt.Sprintf("BID-%d", bidCount),
 		"ad_unit":   DefaultAdUnit,
 		"creative":  fmt.Sprintf(CreativeURLTemplate, selectedSegment.SegmentID),
 		"win_price": fmt.Sprintf("%.2f", winPrice),
 		"segment":   selectedSegment.Name,
-	})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ERROR: Failed to encode bid response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // ❌ VULNERABILITY: Exposes user targeting data without auth
 func userTargetingHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+
+	response := map[string]interface{}{
 		"user_id":          userID,
 		"matched_segments": segments[:3],
 		"behavioral_data": map[string]interface{}{
 			"page_views": rand.Intn(100),
 			"cart_adds":  rand.Intn(20),
 		},
-	})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ERROR: Failed to encode user targeting response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func main() {
@@ -158,6 +185,8 @@ func main() {
 	http.HandleFunc("/bid", bidHandler)
 	http.HandleFunc("/user-targeting", userTargetingHandler)
 
-	log.Printf("Ad Targeting Service starting on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Printf("INFO: Ad Targeting Service starting on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("FATAL: Server failed to start: %v", err)
+	}
 }
