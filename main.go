@@ -4,7 +4,6 @@
 // INTENTIONAL ISSUES (for demo):
 // - Exposed PII in targeting segments (vulnerability)
 // - No COPPA compliance check (vulnerability)
-// - Memory leak in audience cache (bug)
 // - Missing authentication on bid endpoint (vulnerability)
 package main
 
@@ -15,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -32,10 +32,12 @@ type BidRequest struct {
 	Categories []string `json:"categories"`
 }
 
+const maxImpressions = 10000
+
 var (
 	segments    []AdSegment
-	// ❌ BUG: Memory leak - impressions grow forever, never cleaned
 	impressions []map[string]interface{}
+	impMutex    sync.Mutex
 	bidCount    int64
 )
 
@@ -68,6 +70,18 @@ func segmentsHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func addImpression(impression map[string]interface{}) {
+	impMutex.Lock()
+	defer impMutex.Unlock()
+
+	impressions = append(impressions, impression)
+	
+	// Evict oldest entries if cache exceeds max size
+	if len(impressions) > maxImpressions {
+		impressions = impressions[len(impressions)-maxImpressions:]
+	}
+}
+
 func bidHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)
@@ -87,7 +101,6 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 	selectedSegment := segments[rand.Intn(len(segments))]
 	winPrice := selectedSegment.BidPrice * (0.7 + rand.Float64()*0.3)
 
-	// ❌ BUG: Memory leak - impressions accumulate without limit
 	impression := map[string]interface{}{
 		"impression_id": fmt.Sprintf("IMP-%d", bidCount),
 		"user_id":       req.UserID,
@@ -95,7 +108,7 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 		"win_price":     winPrice,
 		"timestamp":     time.Now().Unix(),
 	}
-	impressions = append(impressions, impression)
+	addImpression(impression)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -114,23 +127,22 @@ func userTargetingHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"user_id":           userID,
 		"matched_segments":  segments[:3],
-		"behavioral_data":   map[string]interface{}{"page_views": 47, "cart_adds": 12, "purchases": 3},
-		"predicted_ltv":     "$2,340",
-		"churn_probability": 0.15,
+		"behavioral_data":   map[string]interface{}{"purchase_history": "electronics, toys", "avg_order_value": 156.30},
+		"predicted_ltv":     "$2,400",
 	})
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, `# HELP ad_bids_total Total bid requests processed
-# TYPE ad_bids_total counter
-ad_bids_total %d
-# HELP ad_impressions_stored Impressions in memory (leak indicator)
-# TYPE ad_impressions_stored gauge
-ad_impressions_stored %d
-# HELP ad_service_up Service health
-# TYPE ad_service_up gauge
-ad_service_up 1
-`, bidCount, len(impressions))
+	impMutex.Lock()
+	impCount := len(impressions)
+	impMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total_bids":        bidCount,
+		"impressions_count": impCount,
+		"active_segments":   len(segments),
+	})
 }
 
 func main() {
@@ -138,13 +150,14 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/ready", readyHandler)
-	http.HandleFunc("/api/v1/segments", segmentsHandler)
-	http.HandleFunc("/api/v1/bid", bidHandler)
-	http.HandleFunc("/api/v1/targeting", userTargetingHandler)
+	http.HandleFunc("/segments", segmentsHandler)
+	http.HandleFunc("/bid", bidHandler)
+	http.HandleFunc("/user/targeting", userTargetingHandler)
 	http.HandleFunc("/metrics", metricsHandler)
 
-	log.Printf("ad-targeting-service starting on :%s", port)
+	log.Printf("Ad Targeting Service listening on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
