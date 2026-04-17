@@ -124,19 +124,12 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 	latency := time.Duration(rand.Intn(MaxBidLatencyMs-MinBidLatencyMs)+MinBidLatencyMs) * time.Millisecond
 	time.Sleep(latency)
 
-	// Select matching segment
-	selectedSegment := segments[rand.Intn(len(segments))]
-	winPrice := selectedSegment.BidPrice * (MinBidMultiplier + rand.Float64()*BidMultiplierRange)
+	// Select matching segment and calculate win price
+	selectedSegment := selectSegment()
+	winPrice := calculateWinPrice(selectedSegment.BidPrice)
 
 	// ❌ BUG: Memory leak - impressions accumulate without limit
-	impression := map[string]interface{}{
-		"impression_id": fmt.Sprintf("IMP-%d", bidCount),
-		"user_id":       req.UserID,
-		"segment":       selectedSegment.SegmentID,
-		"win_price":     winPrice,
-		"timestamp":     time.Now().Unix(),
-	}
-	impressions = append(impressions, impression)
+	recordImpression(bidCount, req.UserID, selectedSegment.SegmentID, winPrice)
 
 	response := map[string]interface{}{
 		"bid_id":    fmt.Sprintf("BID-%d", bidCount),
@@ -151,6 +144,29 @@ func bidHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR: Failed to encode bid response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+// selectSegment returns a randomly selected ad segment
+func selectSegment() AdSegment {
+	return segments[rand.Intn(len(segments))]
+}
+
+// calculateWinPrice computes the final bid price with random variance
+func calculateWinPrice(basePrice float64) float64 {
+	multiplier := MinBidMultiplier + rand.Float64()*BidMultiplierRange
+	return basePrice * multiplier
+}
+
+// recordImpression stores impression data for analytics
+func recordImpression(bidID int64, userID, segmentID string, winPrice float64) {
+	impression := map[string]interface{}{
+		"impression_id": fmt.Sprintf("IMP-%d", bidID),
+		"user_id":       userID,
+		"segment":       segmentID,
+		"win_price":     winPrice,
+		"timestamp":     time.Now().Unix(),
+	}
+	impressions = append(impressions, impression)
 }
 
 // ❌ VULNERABILITY: Exposes user targeting data without auth
