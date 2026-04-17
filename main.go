@@ -18,6 +18,30 @@ import (
 	"time"
 )
 
+// HTTP status codes
+const (
+	StatusMethodNotAllowed = 405
+)
+
+// Bid timing configuration
+const (
+	MinBidLatencyMs = 10
+	MaxBidLatencyMs = 30
+)
+
+// Bid price multipliers
+const (
+	MinBidMultiplier   = 0.7
+	MaxBidMultiplier   = 1.0
+	BidMultiplierRange = MaxBidMultiplier - MinBidMultiplier
+)
+
+// Ad creative configuration
+const (
+	DefaultAdUnit       = "banner_728x90"
+	CreativeURLTemplate = "https://ads.walmart.com/creatives/%s.png"
+)
+
 type AdSegment struct {
 	SegmentID string   `json:"segment_id"`
 	Name      string   `json:"name"`
@@ -27,13 +51,13 @@ type AdSegment struct {
 }
 
 type BidRequest struct {
-	UserID     string `json:"user_id"`
-	PageType   string `json:"page_type"`
+	UserID     string   `json:"user_id"`
+	PageType   string   `json:"page_type"`
 	Categories []string `json:"categories"`
 }
 
 var (
-	segments    []AdSegment
+	segments []AdSegment
 	// ❌ BUG: Memory leak - impressions grow forever, never cleaned
 	impressions []map[string]interface{}
 	bidCount    int64
@@ -51,86 +75,118 @@ func init() {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "UP", "service": "ad-targeting-service", "version": "1.4.2",
-	})
+	}); err != nil {
+		log.Printf("ERROR: Failed to encode health response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func readyHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"status": "READY"})
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "READY"}); err != nil {
+		log.Printf("ERROR: Failed to encode ready response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func segmentsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"segments": segments,
 		"total":    len(segments),
-	})
+	}); err != nil {
+		log.Printf("ERROR: Failed to encode segments response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func bidHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", StatusMethodNotAllowed)
 		return
 	}
 
 	// ❌ VULNERABILITY: No authentication on bid endpoint
 	var req BidRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("ERROR: Failed to decode bid request: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
 	bidCount++
+	log.Printf("INFO: Processing bid request %d for user %s", bidCount, req.UserID)
 
 	// Simulate real-time bidding with latency
-	time.Sleep(time.Duration(rand.Intn(30)+10) * time.Millisecond)
+	latency := time.Duration(rand.Intn(MaxBidLatencyMs-MinBidLatencyMs)+MinBidLatencyMs) * time.Millisecond
+	time.Sleep(latency)
 
-	// Select matching segment
-	selectedSegment := segments[rand.Intn(len(segments))]
-	winPrice := selectedSegment.BidPrice * (0.7 + rand.Float64()*0.3)
+	// Select matching segment and calculate win price
+	selectedSegment := selectSegment()
+	winPrice := calculateWinPrice(selectedSegment.BidPrice)
 
 	// ❌ BUG: Memory leak - impressions accumulate without limit
+	recordImpression(bidCount, req.UserID, selectedSegment.SegmentID, winPrice)
+
+	response := map[string]interface{}{
+		"bid_id":    fmt.Sprintf("BID-%d", bidCount),
+		"ad_unit":   DefaultAdUnit,
+		"creative":  fmt.Sprintf(CreativeURLTemplate, selectedSegment.SegmentID),
+		"win_price": fmt.Sprintf("%.2f", winPrice),
+		"segment":   selectedSegment.Name,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ERROR: Failed to encode bid response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// selectSegment returns a randomly selected ad segment
+func selectSegment() AdSegment {
+	return segments[rand.Intn(len(segments))]
+}
+
+// calculateWinPrice computes the final bid price with random variance
+func calculateWinPrice(basePrice float64) float64 {
+	multiplier := MinBidMultiplier + rand.Float64()*BidMultiplierRange
+	return basePrice * multiplier
+}
+
+// recordImpression stores impression data for analytics
+func recordImpression(bidID int64, userID, segmentID string, winPrice float64) {
 	impression := map[string]interface{}{
-		"impression_id": fmt.Sprintf("IMP-%d", bidCount),
-		"user_id":       req.UserID,
-		"segment":       selectedSegment.SegmentID,
+		"impression_id": fmt.Sprintf("IMP-%d", bidID),
+		"user_id":       userID,
+		"segment":       segmentID,
 		"win_price":     winPrice,
 		"timestamp":     time.Now().Unix(),
 	}
 	impressions = append(impressions, impression)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"bid_id":    fmt.Sprintf("BID-%d", bidCount),
-		"ad_unit":   "banner_728x90",
-		"creative":  fmt.Sprintf("https://ads.walmart.com/creatives/%s.png", selectedSegment.SegmentID),
-		"win_price": fmt.Sprintf("%.2f", winPrice),
-		"segment":   selectedSegment.Name,
-	})
 }
 
 // ❌ VULNERABILITY: Exposes user targeting data without auth
 func userTargetingHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"user_id":           userID,
-		"matched_segments":  segments[:3],
-		"behavioral_data":   map[string]interface{}{"page_views": 47, "cart_adds": 12, "purchases": 3},
-		"predicted_ltv":     "$2,340",
-		"churn_probability": 0.15,
-	})
-}
 
-func metricsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, `# HELP ad_bids_total Total bid requests processed
-# TYPE ad_bids_total counter
-ad_bids_total %d
-# HELP ad_impressions_stored Impressions in memory (leak indicator)
-# TYPE ad_impressions_stored gauge
-ad_impressions_stored %d
-# HELP ad_service_up Service health
-# TYPE ad_service_up gauge
-ad_service_up 1
-`, bidCount, len(impressions))
+	response := map[string]interface{}{
+		"user_id":          userID,
+		"matched_segments": segments[:3],
+		"behavioral_data": map[string]interface{}{
+			"page_views": rand.Intn(100),
+			"cart_adds":  rand.Intn(20),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ERROR: Failed to encode user targeting response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func main() {
@@ -138,13 +194,15 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/ready", readyHandler)
-	http.HandleFunc("/api/v1/segments", segmentsHandler)
-	http.HandleFunc("/api/v1/bid", bidHandler)
-	http.HandleFunc("/api/v1/targeting", userTargetingHandler)
-	http.HandleFunc("/metrics", metricsHandler)
+	http.HandleFunc("/segments", segmentsHandler)
+	http.HandleFunc("/bid", bidHandler)
+	http.HandleFunc("/user-targeting", userTargetingHandler)
 
-	log.Printf("ad-targeting-service starting on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Printf("INFO: Ad Targeting Service starting on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("FATAL: Server failed to start: %v", err)
+	}
 }
